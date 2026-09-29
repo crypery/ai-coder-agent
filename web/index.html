@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent Chat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; background-color: var(--bs-body-bg); }
+  #chat { flex: 1 1 auto; overflow-y: auto; scroll-behavior: smooth; }
+  .msg { display: flex; margin-bottom: 12px; align-items: flex-end; }
+  .msg .bubble {
+    max-width: 78%;
+    padding: 4px 6px;
+    border-radius: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    box-shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .bubble {
+    background-color: var(--bs-primary);
+    color: #fff;
+    border-bottom-right-radius: 3px;
+  }
+  .msg.server { justify-content: flex-start; }
+  .msg.server .bubble {
+    background-color: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+    border: 1px solid var(--bs-border-color);
+    border-bottom-left-radius: 3px;
+  }
+  .msg .avatar {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .9rem;
+  }
+  .msg.server .avatar {
+    order: 0;
+    background-color: var(--bs-secondary-bg);
+    border: 1px solid var(--bs-border-color);
+    color: var(--bs-secondary-color);
+    margin-right: 8px;
+  }
+  .msg.server .bubble { order: 1; }
+  .msg.user .avatar {
+    order: 1;
+    background-color: var(--bs-primary);
+    color: #fff;
+    margin-left: 8px;
+  }
+  .msg.user .bubble { order: 0; }
+  @keyframes msgIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+  .msg { animation: msgIn .18s ease-out; }
+  .toolhead {
+    font-size: .76rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: 4px;
+    opacity: .85;
+  }
+  /* Secondary text that stays readable in both themes: lighter on dark,
+     darker on light. */
+  html[data-bs-theme="dark"] .text-secondary { color: #cfd6de !important; }
+  html[data-bs-theme="light"] .text-secondary { color: #42464d !important; }
+  .toolbody {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .88rem;
+    display: none;
+  }
+  .resultbody { max-height: 300px; overflow-y: auto; }
+  .todo-panel { background-color: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color); border-radius: 8px; padding: 5px 5px;  overflow: hidden; }
+  .todo-panel .todo-title { font-weight: 600; font-size: .7rem; color: var(--bs-primary); cursor: pointer; user-select: none; display: flex; align-items: center; }
+  .todo-panel .todo-title .chevron { margin-left: 6px; transition: transform .2s ease; }
+  .todo-panel .todo-title .chevron.closed { transform: rotate(-90deg); }
+  .todo-panel .todo-item { font-size: .9rem; margin: 3px 0; white-space: pre-wrap; }
+  #todoContent { display: none; overflow: hidden; }
+  #todoContent.open { display: block; max-height: 200px; overflow-y: auto; font-size: .9rem; animation: todoSlideUp .3s ease-out; }
+  @keyframes todoSlideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  .thinkbubble { font-style: italic; font-size: .9rem; border-style: dashed !important; color: var(--bs-secondary-color); }
+  .dots::after { content: '...'; animation: blinkdots 1.2s steps(4, end) infinite; }
+  @keyframes blinkdots { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  .sys {
+    text-align: center;
+    font-size: .82rem;
+    color: var(--bs-secondary-color);
+    margin: 6px 0;
+    white-space: pre-wrap;
+  }
+  .qbtn { margin: 4px 6px 0 0; }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .qlist { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .qlist .btn { text-align: left; }
+  .msg.server .bubble.perm { max-width: 100%; }
+  #statusDot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  #statsRow { max-width: 100%; }
+  .st-stat { display: inline-flex; align-items: center; white-space: nowrap; }
+  .st-stat i { opacity: .75; }
+  .st-stat .st-val { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .st-total { font-weight: 600; }
+  .st-total i, .st-total .st-val { color: var(--bs-primary); }
+  #input { resize: none; }
+</style>
+</head>
+<body>
+
+<header class="navbar navbar-expand border-bottom">
+  <div class="container-fluid py-2">
+    <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <span class="navbar-brand mb-0 h1"><i class="bi bi-robot me-2"></i>AI Agent Chat</span>
+        <div id="statsRow" class="d-flex align-items-center gap-3 flex-wrap text-secondary small">
+          <span class="st-stat" title="Model"><i class="bi bi-cpu me-1"></i><span id="stModel" class="st-val">–</span></span>
+          <span class="st-stat" title="API endpoint"><i class="bi bi-broadcast me-1"></i><span id="stApi" class="st-val">–</span></span>
+          <span class="st-stat" title="Messages in session"><i class="bi bi-chat-dots me-1"></i><span id="stMessages" class="st-val">–</span></span>
+          <span class="st-stat" title="Tokens used"><i class="bi bi-database me-1"></i><span id="stUsed" class="st-val">–</span></span>
+          <span class="st-stat" title="Total token limit"><i class="bi bi-sliders me-1"></i><span id="stMax" class="st-val">–</span></span>
+          <span class="st-stat st-total" title="Share of the limit used"><i class="bi bi-percent me-1"></i><span id="stPct" class="st-val">–</span></span>
+        </div>
+      </div>
+      <div id="connControls" class="d-flex align-items-center gap-3 flex-shrink-0 ms-auto flex-wrap">
+        <span id="connBlock" class="text-secondary small d-inline-flex align-items-center">
+          <span id="statusDot" class="bg-warning"></span><span id="connStatus">Connecting...</span>
+        </span>
+        <span id="toolbarBtns" class="d-inline-flex align-items-center gap-2">
+          <button id="themeToggle" class="btn btn-outline-secondary btn-sm" type="button">
+            <i id="themeIcon" class="bi bi-moon"></i>&nbsp;<span id="themeLabel">Dark</span>
+          </button>
+          <button id="clearBtn" class="btn btn-outline-secondary btn-sm" type="button" title="Clear chat history (localStorage + server session)">
+            <i class="bi bi-trash3"></i>&nbsp;Clear chat
+          </button>
+        </span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="chat" class="container py-3"></main>
+
+<footer class="border-top">
+  <div class="container py-2">
+    <div id="todoPanel" class="todo-panel">
+      <div class="todo-title">Todo List <i class="bi bi-chevron-down chevron closed"></i></div>
+      <div id="todoContent"></div>
+    </div>
+    <div class="input-group">
+      <textarea id="input" class="form-control" rows="3"
+        placeholder="Type a message... (Enter to send, Shift+Enter for a new line)"></textarea>
+      <button id="sendBtn" class="btn btn-primary" type="button">
+        <i class="bi bi-send"></i>&nbsp;Send
+      </button>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+$(function () {
+  var $chat = $('#chat');
+  var $input = $('#input');
+  var ws = null;
+  var reconnectTimer = null;
+  // Client-side timing defaults; the server overrides them via the stats
+  // message with the values from the config.
+  var reconnectMs = 3000;
+  var stopFallbackMs = 4000;
+
+  // ---------- theme ----------
+  function applyTheme(theme) {
+    $('html').attr('data-bs-theme', theme);
+    localStorage.setItem('theme', theme);
+    $('#themeIcon').attr('class', theme === 'dark' ? 'bi bi-sun' : 'bi bi-moon');
+    $('#themeLabel').text(theme === 'dark' ? 'Light' : 'Dark');
+  }
+  applyTheme(localStorage.getItem('theme') || 'light');
+  $('#themeToggle').on('click', function () {
+    var cur = $('html').attr('data-bs-theme');
+    applyTheme(cur === 'dark' ? 'light' : 'dark');
+  });
+
+  // ---------- history (localStorage) ----------
+  var HISTORY_KEY = 'aiAgentChatHistory';
+  var MAX_HISTORY = 400;
+  var MAX_TEXT = 12000;
+  var history = loadHistory();
+
+  function loadHistory() {
+    try {
+      var arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+
+  function saveHistory() {
+    while (history.length > MAX_HISTORY) history.shift();
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (e) {
+      // Quota exceeded: drop the oldest entries until it fits.
+      while (history.length > 0) {
+        history.shift();
+        try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); return; } catch (e2) {}
+      }
+    }
+  }
+
+  function pushHistory(type, text, event, title, id) {
+    history.push({ type: type, text: text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + '\n…(truncated in saved history)' : text, event: event || '', title: title || '', id: id || '' });
+    saveHistory();
+  }
+
+  function clearHistory() {
+    history = [];
+    saveHistory();
+    $chat.empty();
+  }
+
+  // ---------- rendering ----------
+  function avatarEl(side, icon) {
+    return $('<div>').addClass('avatar').html(
+      '<i class="bi ' + (icon || (side === 'user' ? 'bi-person' : 'bi-robot')) + '"></i>'
+    );
+  }
+
+  function appendBubble(side, bub, icon) {
+    var div = $('<div>').addClass('msg ' + side);
+    div.append(bub, avatarEl(side, icon));
+    $chat.append(div);
+    scrollBottom();
+    return bub;
+  }
+
+  function bubble(side, text, opts) {
+    var bub = $('<div>').addClass('bubble').text(text);
+    if (opts && opts.id) bub.attr('id', opts.id);
+    appendBubble(side, bub);
+    return bub;
+  }
+
+  function addUser(text)     { bubble('user', text); pushHistory('user', text); }
+  function addServer(text, id)   { bubble('server', text, {id: id}); pushHistory('server', text); }
+  function addSystem(text)   { $('<div>').addClass('sys').text(text).appendTo($chat); scrollBottom(); }
+
+  // Server activity (thinking, tool calls, results, errors and command output)
+  // is rendered on the left in the same gray bubble as the server response.
+  // The server sends the logger event name, a title ("tool : edit : src/main.go")
+  // and the body as separate fields, so nothing is parsed out of a combined
+  // "\n"-separated blob here.
+  function addSysBubble(namelog, title, content, eventID) {
+    if (content === undefined || content === null) content = '';
+    var kind = namelog === 'tool_result' ? 'result' : (namelog || 'tool');
+    if (kind === 'result' && eventID) {
+        if (title === 'todowrite') {
+           showTodo(content);
+           return;
+        }
+        var existing = $('#' + eventID);
+        if (existing.length) {
+          var body = existing.find('.toolbody');
+          if (!body.length) {
+            body = $('<div>').addClass('toolbody').appendTo(existing);
+          } else if (body.text().length > 0) {
+            body.append('\n');
+          }
+          body.append(content);
+          existing.closest('.msg').find('.avatar').html('<i class="bi bi-check-circle text-success"></i>');
+          scrollBottom();
+        }
+        return;
+    }
+    var bub = $('<div>').addClass('bubble');
+    if (eventID) bub.attr('id', eventID);
+    var cls = kind === 'error' ? 'text-danger' : (kind === 'result' ? 'text-success' : 'text-secondary');
+    var icon = kind === 'error' ? 'bi-exclamation-triangle' : (kind === 'result' ? 'bi-cpu' : 'bi-wrench-adjustable');
+    var head = $('<div>').addClass('toolhead');
+    $('<i>').addClass('bi ' + icon + ' ' + cls + ' me-1').appendTo(head);
+    $('<span>').addClass(cls).text(kind + (title ? ' : ' + title : '')).appendTo(head);
+    bub.append(head);
+    // Tool-call bubbles already show the target in the header title
+    // ("tool : list : output"); the body is reserved for the result.
+    if (content.trim() && kind !== 'tool') {
+      bub.append($('<div>').addClass('toolbody').text(content));
+    }
+    appendBubble('server', bub, icon);
+    return bub;
+  }
+
+  // The todo panel stays visible; only its content is toggled. showTodo fills
+  // the list and re-triggers the slide-up animation (bottom -> top).
+  function showTodo(content) {
+    var tc = $('#todoContent');
+    tc.html(content.replaceAll('\n', '<br/>'));
+    tc.removeClass('open');
+    void tc[0].offsetHeight; // force reflow so the animation restarts
+    tc.addClass('open');
+    $('.todo-title .chevron').removeClass('closed');
+  }
+
+  function hideTodo() {
+    $('#todoContent').removeClass('open');
+    $('.todo-title .chevron').addClass('closed');
+  }
+
+  function addThinking() {
+    var bub = $('<div>').addClass('bubble thinkbubble');
+    $('<span>').text('thinking').appendTo(bub);
+    $('<span>').addClass('dots').appendTo(bub);
+    appendBubble('server', bub, 'bi-stars');
+  }
+
+  // Transient connection/queue notices stay centered; everything else from the
+  // server lands in a gray left bubble.
+  function handleSystem(msg) {
+    if (!msg.text && !msg.event) return;
+    if (msg.text === 'Connected to AI Agent.' ||
+        msg.text === 'Not connected. Waiting for reconnect...' ||
+        msg.text === 'Still processing the previous message. Please wait.' ||
+        msg.text === 'Chat history cleared.') {
+      addSystem(msg.text);
+      return;
+    }
+    if (msg.text === 'thinking...') { addThinking(); return; }
+    if (msg.event) {
+      addSysBubble(msg.event, msg.title, msg.text, msg.id);
+    } else {
+      addSysBubble('stage', '', msg.text, msg.id);
+    }
+    if (msg.title === 'todowrite') return;
+    pushHistory('system', msg.text, msg.event, msg.title, msg.id);
+  }
+
+  function scrollBottom() { $chat.scrollTop($chat[0].scrollHeight); }
+
+  //              -----
+  // Restore the persisted chat history before the websocket connects.
+  function renderSavedHistory() {
+    var has = false;
+    $.each(history, function (i, e) {
+      if (e.title === 'todowrite') return;
+      if (e.type === 'user') { bubble('user', e.text); has = true; return; }
+      if (e.type === 'server') { bubble('server', e.text); has = true; return; }
+      if (e.type === 'system') {
+        has = true;
+        if (e.event === 'tool_result' && e.id) {
+          var existing = $('#' + e.id);
+          if (existing.length) {
+            var body = existing.find('.toolbody');
+            if (!body.length) {
+              body = $('<div>').addClass('toolbody').appendTo(existing);
+            } else if (body.text().length > 0) {
+              body.append('\n');
+            }
+            body.append(e.text);
+            existing.closest('.msg').find('.avatar').html('<i class="bi bi-check-circle text-success"></i>');
+            scrollBottom();
+            return;
+          }
+        }
+        addSysBubble(e.event || 'stage', e.title || '', e.text, e.id || null);
+      }
+    });
+    return has;
+  }
+
+  // ---------- websocket ----------
+  function setStatus(text, color) {
+    $('#connStatus').text(text);
+    $('#statusDot').attr('class', '').css('background-color', color || 'inherit');
+  }
+
+  // Update the header status/token strip from a "stats" message. Tokens show
+  // used / available limit / percentage of the limit consumed.
+  function renderStats(msg) {
+    if (!msg) return;
+    function set(id, val) { $('#'.concat(id)).text(val || '–'); }
+    if (msg.model)   set('stModel', msg.model);
+    if (msg.api)     set('stApi', msg.api);
+    set('stMessages', msg.messages);
+    set('stUsed', msg.tokensTotal);
+    set('stMax', msg.tokensMax);
+    var pct = msg.tokensMax > 0 ? (msg.tokensTotal / msg.tokensMax * 100) : 0;
+    set('stPct', (msg.tokensMax ? pct.toFixed(1) : 0) + '%');
+    // Client-side timing values come from the server config. The server always
+    // sends them; 0 disables the limit (stopFallbackMs) or means reconnect
+    // immediately (reconnectMs).
+    if (msg.stopFallbackMs !== undefined) stopFallbackMs = msg.stopFallbackMs;
+    if (msg.reconnectMs !== undefined) reconnectMs = msg.reconnectMs;
+  }
+
+  function connect() {
+    clearTimeout(reconnectTimer);
+    var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    ws = new WebSocket(proto + location.host + '/ws');
+    ws.onopen = function () { setStatus('Connected', '#198754'); };
+    ws.onclose = function () {
+      setStatus('Disconnected', '#dc3545');
+      flow.stop();
+      flow.reset();
+      reconnectTimer = setTimeout(connect, reconnectMs);
+    };
+    ws.onerror = function () { try { ws.close(); } catch (e) {} };
+    ws.onmessage = function (ev) {
+      var msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      handleMessage(msg);
+    };
+  }
+
+  function send(msg) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      addSystem('Not connected. Waiting for reconnect...');
+      return;
+    }
+    ws.send(JSON.stringify(msg));
+  }
+
+  // Enforce single in-flight request so bubbles keep their order.
+  var stopFallbackTimer = null;
+  function clearStopFallback() {
+    if (stopFallbackTimer) { clearTimeout(stopFallbackTimer); stopFallbackTimer = null; }
+  }
+
+  var flow = {
+    busy: false,
+    count: 0,
+    start: function () {
+      if (this.busy) return false;
+      this.busy = true;
+      this.count++;
+      setBusy(true);
+      return true;
+    },
+    stop: function () { this.busy = false; clearStopFallback(); setBusy(false); },
+    reset: function () { this.busy = false; this.count = 0; clearStopFallback(); setBusy(false); }
+  };
+
+  function setBusy(busy) {
+    if (busy) {
+      $input.prop('disabled', true);
+      $('#sendBtn').html('<i class="bi bi-stop-circle"></i>&nbsp;Stop').removeClass('btn-primary').addClass('btn-danger');
+      $('#sendBtn').off('click').on('click', function () {
+        send({ type: 'stop' });
+        // If the server is wedged (e.g. a hung tool call) the normal
+        // server_done may never arrive, so recover the UI after a few seconds.
+        // stopFallbackMs of 0 disables the fallback and waits for server_done.
+        if (stopFallbackMs > 0) {
+          stopFallbackTimer = setTimeout(function () {
+            flow.stop();
+            addSystem('Request stopped.');
+          }, stopFallbackMs);
+        }
+      });
+    } else {
+      $input.prop('disabled', false);
+      $('#sendBtn').html('<i class="bi bi-send"></i>&nbsp;Send').removeClass('btn-danger').addClass('btn-primary');
+      $('#sendBtn').off('click').on('click', doSend);
+      $input.trigger('focus');
+    }
+  }
+
+  function handleMessage(msg) {
+    switch (msg.type) {
+      case 'user':
+        // Command echoes ("/clear", "/status", ...) are retransmissions; the
+        // actual answer arrives as a system message. Dropping them keeps the
+        // cleared chat clean. "/clear" from another tab empties this one too.
+        if (msg.text && msg.text.charAt(0) === '/') {
+          if (/^\/clear\b/.test(msg.text)) {
+            history = [];
+            saveHistory();
+            $chat.empty();
+          }
+          break;
+        }
+        addUser(msg.text);
+        break;
+      case 'server':
+        addServer(msg.text, msg.id);
+        if (msg.done) flow.stop();
+        break;
+      case 'system':
+        handleSystem(msg);
+        break;
+      case 'stats':
+        renderStats(msg);
+        break;
+      case 'question':
+        renderQuestion(msg);
+        break;
+      case 'permission':
+        renderPermission(msg);
+        break;
+      case 'server_done':
+        flow.stop();
+        break;
+    }
+  }
+
+  function renderQuestion(msg) {
+    var question = msg.question || '';
+    var hasOptions = msg.options && msg.options.length > 0;
+    if (hasOptions) {
+      var kept = [];
+      $.each(question.split('\n'), function (i, line) {
+        var t = line.trim();
+        var dup = false;
+        $.each(msg.options, function (j, opt) {
+          var o = String(opt).trim().replace(/\.$/, '');
+          if (t === o) { dup = true; return false; }
+          var m = t.match(/^\d+[)\.]\s*(.+)$/);
+          if (m && m[1].trim().replace(/\.$/, '') === o) { dup = true; return false; }
+        });
+        if (!dup) kept.push(line);
+      });
+      question = kept.join('\n').trim();
+    }
+    var bub = bubble('server', question);
+    if (hasOptions) {
+      var list = $('<div>').addClass('qlist');
+      $.each(msg.options, function (i, opt) {
+        var labeled = (i + 1) + '. ' + opt;
+        $('<button>').addClass('btn btn-sm btn-outline-primary text-start').text(labeled).on('click', function () {
+          send({ type: 'answer', id: msg.id, text: labeled });
+          addUser(labeled);
+          list.find('.btn').prop('disabled', true);
+        }).appendTo(list);
+      });
+      bub.append(list);
+    } else {
+      var group = $('<div>').addClass('input-group input-group-sm mt-2');
+      var inp = $('<input>').addClass('form-control').attr('placeholder', 'Your answer');
+      var ok = $('<button>').addClass('btn btn-primary').text('OK');
+      $('<i class="bi bi-check2"></i>').prependTo(ok);
+      group.append(inp, ok).appendTo(bub);
+      ok.on('click', function () { submit();
+      });
+      inp.on('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+      });
+      inp.trigger('focus');
+      function submit() {
+        var val = inp.val().trim();
+        if (!val) return;
+        send({ type: 'answer', id: msg.id, text: val });
+        addUser(val);
+        ok.prop('disabled', true); inp.prop('disabled', true);
+      }
+    }
+  }
+
+  function renderPermission(msg) {
+    var bub = bubble('server', 'Permission required (' + msg.kind + '): ' + msg.target);
+    bub.addClass('perm');
+    var row = $('<div>').addClass('btn-row');
+    var choices = [
+      { label: 'Yes', decision: 'allow' },
+      { label: 'No', decision: 'deny' },
+      { label: 'Yes - always', decision: 'allow_all' },
+      { label: 'No - always', decision: 'deny_all' }
+    ];
+    $.each(choices, function (i, c) {
+      $('<button>').addClass('btn btn-sm btn-primary qbtn').text(c.label).on('click', function () {
+        send({ type: 'permission', id: msg.id, decision: c.decision });
+        addUser(c.label + ' (' + c.decision + ')');
+        $(this).closest('.msg').find('.qbtn').prop('disabled', true);
+      }).appendTo(row);
+    });
+    bub.append(row);
+  }
+
+  // ---------- sending ----------
+  function doSend() {
+    var text = $input.val().trim();
+    if (!text) return;
+    if (!flow.start()) {
+      addSystem('Still processing the previous message. Please wait.');
+      return;
+    }
+    $input.val('').css('height', '');
+    hideTodo();
+    if (/^\/clear\b/.test(text)) {
+      // The server resets its session and broadcasts "Chat history cleared.",
+      // which gets persisted too; drop the local copy now so it starts fresh.
+      history = [];
+      saveHistory();
+      $chat.empty();
+    }
+    send({ type: 'chat', text: text });
+  }
+
+  $('#sendBtn').on('click', doSend);
+  $('#clearBtn').on('click', function () {
+    if (!confirm('Clear the chat history?')) return;
+    history = [];
+    saveHistory();
+    $chat.empty();
+    send({ type: 'chat', text: '/clear' });
+  });
+  $input.on('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
+  });
+
+  // Auto-grow the input (three times the previous height).
+  $input.on('input', function () {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 480) + 'px';
+  });
+
+  // Toggle toolbody visibility on toolhead click.
+  $(document).on('click', '.toolhead', function () {
+    $(this).nextAll('.toolbody').first().slideToggle(150);
+  });
+
+  // Toggle the todo list content on the todo-title click.
+  $(document).on('click', '.todo-title', function () {
+    var tc = $('#todoContent');
+    var open = !tc.hasClass('open');
+    tc.toggleClass('open', open);
+    $(this).find('.chevron').toggleClass('closed', !open);
+  });
+
+  renderSavedHistory();
+  connect();
+});
+</script>
+</body>
+</html>

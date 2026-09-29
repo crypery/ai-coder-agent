@@ -1,0 +1,1 @@
+denied_paths|C:/Users/Admin/AppData/Local/Temp/TestCheckPathPermissionTraversalDenied1413619649/outside.txt

@@ -1,0 +1,1 @@
+denied_paths|C:/outside.txt
